@@ -47,95 +47,95 @@ class MarkdownDocFormatter:
         
         return content_blocks
     
+    @staticmethod
+    def _line_has_question_mark(text: str) -> bool:
+        """含英文 ? 或中文 ？ 则视为问题相关行（支持句中或句末问号）。"""
+        return "?" in text or "？" in text
+    
     def analyze_and_organize_content(self, blocks: List[Dict]) -> List[Dict]:
-        """分析并组织内容"""
-        organized = []
+        """分析并组织内容：以问号识别问题；无问号的续行归入答案或题干。"""
+        organized: List[Dict] = []
         current_question = ""
-        current_answer = []
+        current_answer: List[str] = []
         question_number = 1
         
-        for block in blocks:
-            text = block['text']
-            
-            # 检查是否是题目
-            question_patterns = [
-                r'^\d+[\.、]\s*',
-                r'^\(\d+\)[\.、]\s*',
-                r'^第\d+[题问]\s*',
-                r'^\d+\s*[\.、]?\s*',
-            ]
-            
-            is_question = any(re.match(pattern, text) for pattern in question_patterns)
-            
-            # 检查是否是答案开始
-            is_answer_start = any(text.startswith(prefix) for prefix in [
-                '答案:', '答:', '解答:', '回答:', '解:', 
-                '答案：', '答：', '解答：', '回答：', '解：',
-                '🎯', '🔍', '核心结论', '扩展追问'
-            ])
-            
-            # 检查是否是标题
-            is_title = (
-                '引言' in text or '背景' in text or '目标' in text or '范围' in text or
-                '架构' in text or '模块' in text or '接口' in text or '数据库' in text or
-                '功能' in text or '安全' in text or '性能' in text or '可用' in text
-            )
-            
-            if is_title and not is_question:
-                # 保存当前内容
-                if current_question:
-                    organized.append({
-                        "type": "qa_pair",
-                        "number": question_number,
-                        "question": current_question.strip(),
-                        "answer": "\n".join(current_answer).strip()
-                    })
-                    question_number += 1
-                    current_question = ""
-                    current_answer = []
-                
-                # 添加章节标题
-                organized.append({
-                    "type": "section_title",
-                    "text": text.strip()
-                })
-                
-            elif is_question:
-                # 保存上一个问题
-                if current_question:
-                    organized.append({
-                        "type": "qa_pair",
-                        "number": question_number,
-                        "question": current_question.strip(),
-                        "answer": "\n".join(current_answer).strip()
-                    })
-                    question_number += 1
-                
-                # 开始新问题
-                current_question = text
+        def flush_qa():
+            nonlocal current_question, current_answer, question_number
+            if not current_question:
+                return
+            if not self._line_has_question_mark(current_question):
+                organized.append({"type": "paragraph", "text": current_question.strip()})
+                for line in current_answer:
+                    if line.strip():
+                        organized.append({"type": "paragraph", "text": line.strip()})
+                current_question = ""
                 current_answer = []
-                
-            elif is_answer_start or (current_question and not is_question):
-                # 答案内容
-                if is_answer_start:
-                    answer_text = text.split(':', 1)[1].strip() if ':' in text else text.split('：', 1)[1].strip() if '：' in text else ""
-                    if answer_text:
-                        current_answer.append(answer_text)
-                else:
-                    current_answer.append(text)
-                    
-            elif current_question and not is_question:
-                # 题目的继续内容
-                current_question += " " + text
-        
-        # 保存最后一个问题
-        if current_question:
+                return
             organized.append({
                 "type": "qa_pair",
                 "number": question_number,
                 "question": current_question.strip(),
-                "answer": "\n".join(current_answer).strip()
+                "answer": "\n".join(current_answer).strip(),
             })
+            question_number += 1
+            current_question = ""
+            current_answer = []
+        
+        for block in blocks:
+            text = block["text"]
+            
+            is_answer_start = any(
+                text.startswith(prefix)
+                for prefix in [
+                    "答案:", "答:", "解答:", "回答:", "解:",
+                    "答案：", "答：", "解答：", "回答：", "解：",
+                    "🎯", "🔍", "核心结论", "扩展追问",
+                ]
+            )
+            
+            is_title = (
+                "引言" in text or "背景" in text or "目标" in text or "范围" in text or
+                "架构" in text or "模块" in text or "接口" in text or "数据库" in text or
+                "功能" in text or "安全" in text or "性能" in text or "可用" in text
+            )
+            
+            if is_title and not self._line_has_question_mark(text):
+                flush_qa()
+                organized.append({"type": "section_title", "text": text.strip()})
+                continue
+            
+            if is_answer_start:
+                body = ""
+                if ":" in text:
+                    body = text.split(":", 1)[1].strip()
+                elif "：" in text:
+                    body = text.split("：", 1)[1].strip()
+                if current_question and self._line_has_question_mark(current_question):
+                    if body:
+                        current_answer.append(body)
+                elif body:
+                    organized.append({"type": "paragraph", "text": text.strip()})
+                continue
+            
+            if self._line_has_question_mark(text):
+                if current_question and self._line_has_question_mark(current_question):
+                    flush_qa()
+                if current_question and not self._line_has_question_mark(current_question):
+                    current_question = (current_question + " " + text).strip()
+                else:
+                    current_question = text
+                continue
+            
+            if current_question:
+                if self._line_has_question_mark(current_question):
+                    current_answer.append(text)
+                else:
+                    current_question = (current_question + " " + text).strip()
+                continue
+            
+            organized.append({"type": "paragraph", "text": text.strip()})
+        
+        flush_qa()
         
         return organized
     
@@ -173,6 +173,10 @@ class MarkdownDocFormatter:
                 md_content.append(f"## {item['text']}")
                 md_content.append("")
                 
+            elif item['type'] == 'paragraph':
+                md_content.append(item['text'])
+                md_content.append("")
+                
             elif item['type'] == 'qa_pair':
                 # 问答对
                 question = item['question'].strip()
@@ -182,29 +186,24 @@ class MarkdownDocFormatter:
                 question = re.sub(r'^\d+[\.、]\s*', '', question)
                 question = re.sub(r'^\(\d+\)[\.、]\s*', '', question)
                 
-                # 问题
+                # 问题（带序号）
                 md_content.append(f"### {item['number']}. {question}")
                 md_content.append("")
                 
-                # 答案
                 if answer:
                     md_content.append("**答案：**")
                     md_content.append("")
-                    
-                    # 处理答案内容
                     answer_lines = answer.split('\n')
                     for line in answer_lines:
                         line = line.strip()
                         if line:
-                            # 处理选项格式
                             if re.match(r'^[A-D][\.、]\s*', line):
                                 md_content.append(f"   {line}")
                             else:
                                 md_content.append(line)
-                    md_content.append("")
                 else:
                     md_content.append("*（暂无答案）*")
-                    md_content.append("")
+                md_content.append("")
         
         return '\n'.join(md_content)
     
