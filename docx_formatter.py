@@ -4,9 +4,11 @@
 """
 
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Any, Iterator, Union
 import re
 from docx import Document
+from docx.table import Table as DocxTable
+from docx.text.paragraph import Paragraph as DocxParagraph
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
@@ -101,17 +103,6 @@ class FormattedDocxGenerator:
             run.font.bold = True
             run.font.color.rgb = None
     
-    def _apply_answer_title_style(self, paragraph):
-        """应用答案标题样式到段落"""
-        for run in paragraph.runs:
-            run.font.name = '黑体'
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')  # 明确设置东亚字体
-            run._element.rPr.rFonts.set(qn('w:ascii'), '黑体')     # 设置西文字体
-            run._element.rPr.rFonts.set(qn('w:hAnsi'), '黑体')     # 设置ANSI字体
-            run.font.size = Pt(12)
-            run.font.bold = True
-            run.font.color.rgb = None
-    
     def _apply_answer_content_style(self, paragraph):
         """应用答案内容样式到段落"""
         for run in paragraph.runs:
@@ -123,64 +114,115 @@ class FormattedDocxGenerator:
             run.font.bold = False
             run.font.color.rgb = None
     
+    @staticmethod
+    def _clean_block_text(text: str) -> str:
+        """段落文本清理（与原先 extract 内逻辑一致）。"""
+        try:
+            text = text.replace('□', '').replace('▢', '').replace('▪', '').replace('▫', '')
+            text = text.replace('○', '').replace('●', '')
+            text = ''.join(c for c in text if ord(c) >= 32 or c in '\n\r\t')
+            text = text.encode('utf-8', errors='ignore').decode('utf-8')
+        except Exception:
+            pass
+        return text.strip()
+    
+    @staticmethod
+    def _iter_body_paragraphs_and_tables(document: Document) -> Iterator[Union[DocxParagraph, DocxTable]]:
+        """按文档顺序遍历 body 下的段落与表格（仅 doc.paragraphs 会漏掉表格）。"""
+        body = document.element.body
+        for child in body:
+            if child.tag == qn('w:p'):
+                yield DocxParagraph(child, document)
+            elif child.tag == qn('w:tbl'):
+                yield DocxTable(child, document)
+    
+    @staticmethod
+    def _table_to_rows(table: DocxTable) -> List[List[str]]:
+        rows: List[List[str]] = []
+        for row in table.rows:
+            cells = []
+            for cell in row.cells:
+                t = cell.text.replace('\r', '\n').strip()
+                t = ' '.join(line.strip() for line in t.splitlines() if line.strip())
+                cells.append(t)
+            rows.append(cells)
+        return rows
+    
     def extract_content_from_docx(self, docx_path: Path) -> List[Dict]:
-        """从docx文件提取内容"""
+        """从 docx 按顺序提取段落与表格（表格在段落之间，与 Word 视图一致）。"""
         doc = Document(docx_path)
-        content_blocks = []
+        content_blocks: List[Dict[str, Any]] = []
         
-        for paragraph in doc.paragraphs:
-            text = paragraph.text.strip()
-            if not text:
-                continue
-            
-            # 彻底清理字符编码问题
-            try:
-                # 移除所有可能的乱码字符
-                text = text.replace('□', '')
-                text = text.replace('▢', '')
-                text = text.replace('▪', '')
-                text = text.replace('▫', '')
-                text = text.replace('○', '')
-                text = text.replace('●', '')
-                
-                # 清理不可见字符
-                text = ''.join(c for c in text if ord(c) >= 32 or c in '\n\r\t')
-                
-                # 重新编码确保正确
-                text = text.encode('utf-8', errors='ignore').decode('utf-8')
-                
-            except Exception as e:
-                # 如果清理失败，使用原始文本
-                pass
-            
-            content_blocks.append({
-                'text': text,
-                'raw_text': text
-            })
+        for block in self._iter_body_paragraphs_and_tables(doc):
+            if isinstance(block, DocxParagraph):
+                text = self._clean_block_text(block.text)
+                if not text:
+                    continue
+                content_blocks.append({'type': 'paragraph', 'text': text, 'raw_text': text})
+            else:
+                rows = self._table_to_rows(block)
+                if not rows or not any(any(c for c in r) for r in rows):
+                    continue
+                content_blocks.append({'type': 'table', 'rows': rows})
         
         return content_blocks
     
     @staticmethod
-    def _line_has_question_mark(text: str) -> bool:
-        """含英文 ? 或中文 ？ 则视为问题相关行（支持句中或句末问号）。"""
-        return "?" in text or "？" in text
+    def _line_ends_with_question_mark(text: str) -> bool:
+        """仅当本段去掉尾部空白后以 ? 或 ？ 结尾时视为『问句结束』；句中的问号不触发新题。"""
+        t = text.rstrip()
+        return bool(t) and (t[-1] == "?" or t[-1] == "？")
+    
+    @staticmethod
+    def _looks_like_chapter_heading(text: str) -> bool:
+        """
+        识别章节类标题（用于导航），避免把答案里的长句误判为章节。
+        匹配：含「（数字…道）」、以「第…章」开头等。
+        """
+        t = text.strip()
+        if not t or FormattedDocxGenerator._line_ends_with_question_mark(t):
+            return False
+        if len(t) > 56:
+            return False
+        if re.match(r"^(?:问题|解决|解答|注意|说明|示例|小结|优势|缺点)[：:]", t):
+            return False
+        if re.search(r"[（(]\s*\d+[^）)]*道\s*[）)]", t):
+            return True
+        if re.match(r"^第[一二三四五六七八九十百千零〇两\d]+章", t):
+            return True
+        if re.match(r"^第[一二三四五六七八九十百千零〇两\d]+节", t):
+            return True
+        return False
     
     def analyze_and_organize_content(self, blocks: List[Dict]) -> List[Dict]:
-        """分析并组织内容：以问号识别问题；无问号的续行归入答案或题干。"""
-        organized = []
+        """分析并组织内容：文首大标题/章节进导航；句末问号界定题目；答案含表格块。"""
+        organized: List[Dict[str, Any]] = []
         current_question = ""
-        current_answer: List[str] = []
+        current_answer: List[Any] = []
         question_number = 1
+        phase = "preamble"
+        preamble: List[str] = []
+        
+        def flush_preamble():
+            nonlocal preamble
+            if not preamble:
+                return
+            organized.append({"type": "article_title", "text": preamble[0].strip()})
+            for line in preamble[1:]:
+                organized.append({"type": "chapter_title", "text": line.strip()})
+            preamble = []
         
         def flush_qa():
             nonlocal current_question, current_answer, question_number
             if not current_question:
                 return
-            if not self._line_has_question_mark(current_question):
+            if not self._line_ends_with_question_mark(current_question):
                 organized.append({"type": "paragraph", "text": current_question.strip()})
-                for line in current_answer:
-                    if line.strip():
-                        organized.append({"type": "paragraph", "text": line.strip()})
+                for seg in current_answer:
+                    if isinstance(seg, str) and seg.strip():
+                        organized.append({"type": "paragraph", "text": seg.strip()})
+                    elif isinstance(seg, dict) and seg.get("type") == "table":
+                        organized.append({"type": "table", "rows": seg["rows"]})
                 current_question = ""
                 current_answer = []
                 return
@@ -188,14 +230,31 @@ class FormattedDocxGenerator:
                 "type": "qa_pair",
                 "number": question_number,
                 "question": current_question.strip(),
-                "answer": "\n".join(current_answer).strip(),
+                "answer_parts": list(current_answer),
             })
             question_number += 1
             current_question = ""
             current_answer = []
         
         for block in blocks:
+            if block.get("type") == "table":
+                if phase == "preamble":
+                    flush_preamble()
+                if current_question and self._line_ends_with_question_mark(current_question):
+                    current_answer.append({"type": "table", "rows": block["rows"]})
+                else:
+                    organized.append({"type": "table", "rows": block["rows"]})
+                continue
+            
             text = block["text"]
+            
+            if phase == "preamble":
+                if self._line_ends_with_question_mark(text):
+                    flush_preamble()
+                    phase = "body"
+                else:
+                    preamble.append(text.strip())
+                    continue
             
             is_answer_start = any(
                 text.startswith(prefix)
@@ -206,52 +265,69 @@ class FormattedDocxGenerator:
                 ]
             )
             
-            is_title = (
-                "引言" in text or "背景" in text or "目标" in text or "范围" in text or
-                "架构" in text or "模块" in text or "接口" in text or "数据库" in text or
-                "功能" in text or "安全" in text or "性能" in text or "可用" in text
-            )
-            
-            if is_title and not self._line_has_question_mark(text):
-                flush_qa()
-                organized.append({"type": "section_title", "text": text.strip()})
-                continue
-            
             if is_answer_start:
                 body = ""
                 if ":" in text:
                     body = text.split(":", 1)[1].strip()
                 elif "：" in text:
                     body = text.split("：", 1)[1].strip()
-                if current_question and self._line_has_question_mark(current_question):
+                if current_question and self._line_ends_with_question_mark(current_question):
                     if body:
                         current_answer.append(body)
                 elif body:
                     organized.append({"type": "paragraph", "text": text.strip()})
                 continue
             
-            if self._line_has_question_mark(text):
-                if current_question and self._line_has_question_mark(current_question):
+            if self._line_ends_with_question_mark(text):
+                if current_question and self._line_ends_with_question_mark(current_question):
                     flush_qa()
-                if current_question and not self._line_has_question_mark(current_question):
+                if current_question and not self._line_ends_with_question_mark(current_question):
                     current_question = (current_question + " " + text).strip()
                 else:
                     current_question = text
                 continue
             
-            # 无问号：已有关键问句则视为答案；否则续接未完成题干或独立段落
+            # 无句末问号：题干已以问号结束时视为答案；否则续接未完成题干
             if current_question:
-                if self._line_has_question_mark(current_question):
+                if self._line_ends_with_question_mark(current_question):
                     current_answer.append(text)
                 else:
                     current_question = (current_question + " " + text).strip()
                 continue
             
-            organized.append({"type": "paragraph", "text": text.strip()})
+            if self._looks_like_chapter_heading(text):
+                organized.append({"type": "chapter_title", "text": text.strip()})
+            else:
+                organized.append({"type": "paragraph", "text": text.strip()})
         
         flush_qa()
+        if phase == "preamble":
+            flush_preamble()
         
         return organized
+    
+    def _add_table_to_document(self, doc: Document, rows: List[List[str]], paragraph_styles: list) -> None:
+        """在 docx 中插入表格并登记段落样式（单元格内段落按正文样式）。"""
+        if not rows:
+            return
+        ncols = max(len(r) for r in rows)
+        nrows = len(rows)
+        if ncols == 0:
+            return
+        tbl = doc.add_table(rows=nrows, cols=ncols)
+        try:
+            tbl.style = "Table Grid"
+        except (KeyError, ValueError):
+            pass
+        for ri in range(nrows):
+            row_data = rows[ri] if ri < len(rows) else []
+            for ci in range(ncols):
+                val = row_data[ci] if ci < len(row_data) else ""
+                cell = tbl.rows[ri].cells[ci]
+                cell.text = val
+                for para in cell.paragraphs:
+                    para.paragraph_format.first_line_indent = Cm(0)
+                    paragraph_styles.append((para, "answer_content", {"is_option": False}))
     
     def create_formatted_docx(self, organized_content: List[Dict]) -> Document:
         """创建格式化的 docx：统一版面与样式，不附加封面、修订记录或占位目录。"""
@@ -268,20 +344,25 @@ class FormattedDocxGenerator:
         
         # 添加正文内容
         for item in organized_content:
-            if item['type'] == 'paragraph':
+            if item['type'] == 'article_title':
+                para = doc.add_paragraph(item['text'])
+                paragraph_styles.append((para, 'article_heading', {'font_size': Pt(18)}))
+
+            elif item['type'] == 'chapter_title':
+                para = doc.add_paragraph(item['text'])
+                paragraph_styles.append((para, 'chapter_heading', {'font_size': Pt(16)}))
+
+            elif item['type'] == 'paragraph':
                 para = doc.add_paragraph(item['text'])
                 paragraph_styles.append((para, 'answer_content', {'is_option': False}))
 
-            elif item['type'] == 'section_title':
-                # 章节标题
-                section_text = item['text']
-                para = doc.add_paragraph(section_text)
-                paragraph_styles.append((para, 'section_title', {'font_size': Pt(16)}))
-                
+            elif item['type'] == 'table':
+                self._add_table_to_document(doc, item['rows'], paragraph_styles)
+                doc.add_paragraph("")
+
             elif item['type'] == 'qa_pair':
                 # 问答对
                 question = item['question'].strip()
-                answer = item['answer'].strip()
                 
                 # 清理问题格式
                 question = re.sub(r'^\d+[\.、]\s*', '', question)
@@ -292,20 +373,22 @@ class FormattedDocxGenerator:
                 question_para = doc.add_paragraph(question_text)
                 paragraph_styles.append((question_para, 'question', {'font_size': Pt(14)}))
                 
-                # 答案
-                if answer:
+                answer_parts = item.get('answer_parts') or []
+                if answer_parts:
                     # 答案标题
                     answer_title_para = doc.add_paragraph("答案：")
                     paragraph_styles.append((answer_title_para, 'answer_title', {}))
                     
-                    # 答案内容
-                    answer_lines = answer.split('\n')
-                    for line in answer_lines:
-                        line = line.strip()
-                        if line:
-                            answer_para = doc.add_paragraph(line)
-                            is_option = bool(re.match(r'^[A-D][\.、]\s*', line))
-                            paragraph_styles.append((answer_para, 'answer_content', {'is_option': is_option}))
+                    for seg in answer_parts:
+                        if isinstance(seg, dict) and seg.get("type") == "table":
+                            self._add_table_to_document(doc, seg["rows"], paragraph_styles)
+                        elif isinstance(seg, str):
+                            for line in seg.split("\n"):
+                                line = line.strip()
+                                if line:
+                                    answer_para = doc.add_paragraph(line)
+                                    is_option = bool(re.match(r'^[A-D][\.、]\s*', line))
+                                    paragraph_styles.append((answer_para, 'answer_content', {'is_option': is_option}))
                 else:
                     # 无答案提示
                     no_answer_para = doc.add_paragraph("（暂无答案）")
@@ -321,20 +404,21 @@ class FormattedDocxGenerator:
     def _apply_all_paragraph_styles(self, doc, paragraph_styles):
         """统一应用所有段落样式"""
         for paragraph, style_type, style_params in paragraph_styles:
-            if style_type == 'section_title':
-                # 章节标题样式
+            if style_type == 'article_heading':
                 paragraph.style = doc.styles['Heading 1']
                 self._apply_title_style(paragraph, style_params['font_size'])
-                
-            elif style_type == 'question':
-                # 问题标题样式
+            elif style_type == 'chapter_heading':
                 paragraph.style = doc.styles['Heading 2']
+                self._apply_title_style(paragraph, style_params['font_size'])
+            elif style_type == 'question':
+                # 标题三：导航中显示题目，且低于文首标题/章节
+                paragraph.style = doc.styles['Heading 3']
                 self._apply_title_style(paragraph, style_params['font_size'])
                 
             elif style_type == 'answer_title':
-                # 答案标题样式
+                # 「答案：」与正文统一为微软雅黑正文，仅带问号的问题行用标题字体强调
                 paragraph.style = doc.styles['Normal']
-                self._apply_answer_title_style(paragraph)
+                self._apply_answer_content_style(paragraph)
                 
             elif style_type == 'answer_content':
                 # 答案内容样式
@@ -385,7 +469,9 @@ class FormattedDocxGenerator:
     def process_all_files(self) -> List[Path]:
         """处理所有docx文件"""
         processed_files = []
-        docx_files = list(self.source_dir.glob("*.docx"))
+        docx_files = sorted(
+            p for p in self.source_dir.glob("*.docx") if not p.name.startswith("~$")
+        )
         
         if not docx_files:
             logger.warning(f"在 {self.source_dir} 目录中未找到docx文件")
