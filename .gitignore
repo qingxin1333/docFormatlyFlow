@@ -52,7 +52,7 @@ tmp/
 
 # Output files
 *.docx
-*.md
+!README.md
 !source/*.docx
 
 # Keep template files

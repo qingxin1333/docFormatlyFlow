@@ -27,7 +27,7 @@ echo Starting formatted document formatter to generate DOCX files...
 echo.
 
 REM Run formatted docx formatter
-python doc_formatter_to_docx_formatted.py
+python docx_formatter.py
 
 echo.
 echo Program execution completed.

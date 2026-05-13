@@ -1,0 +1,143 @@
+PS C:\Users\Administrator> systeminfo
+
+主机名:             SUPER-JAMES
+OS 名称:            Microsoft Windows 11 专业版
+OS 版本:            10.0.26200 暂缺 Build 26200
+OS 制造商:          Microsoft Corporation
+OS 配置:            独立工作站
+OS 构建类型:        Multiprocessor Free
+注册的所有人:       Windows User
+注册的组织:         P R C
+产品 ID:            00331-10000-00001-AA787
+初始安装日期:       2025/10/26, 22:44:21
+系统启动时间:       2025/12/20, 11:17:33
+系统制造商:         Micro-Star International Co., Ltd.
+系统型号:           MS-7E06
+系统类型:           x64-based PC
+处理器:             安装了 1 个处理器。
+                    [01]: Intel64 Family 6 Model 183 Stepping 1 GenuineIntel ~3400 Mhz
+BIOS 版本:          American Megatrends International, LLC. A.H0, 2025/6/4
+Windows 目录:       C:\Windows
+系统目录:           C:\Windows\system32
+启动设备:           \Device\HarddiskVolume1
+系统区域设置:       zh-cn;中文(中国)
+输入法区域设置:     en-us;英语(美国)
+时区:               (UTC+08:00) 北京，重庆，香港特别行政区，乌鲁木齐
+物理内存总量:       32,539 MB
+可用的物理内存:     23,085 MB
+虚拟内存: 最大值:   65,307 MB
+虚拟内存: 可用:     41,412 MB
+虚拟内存: 使用中:   23,895 MB
+页面文件位置:       D:\pagefile.sys
+域:                 WORKGROUP
+登录服务器:         \\SUPER-JAMES
+修补程序:           安装了 4 个修补程序。
+                    [01]: KB5066128
+                    [02]: KB5054156
+                    [03]: KB5066835
+                    [04]: KB5067360
+网卡:               安装了 3 个 NIC。
+                    [01]: Intel(R) Wi-Fi 6E AX211 160MHz
+                        连接名:      WLAN
+                        状态:        没有硬件
+                    [02]: Intel(R) Ethernet Controller I226-V
+                        连接名:      以太网
+                        启用 DHCP:   是
+                        DHCP 服务器: 192.168.1.1
+                        IP 地址
+                          [01]: 192.168.1.8
+                          [02]: fe80::9ea:4e2b:9dcc:a374
+                          [03]: 2409:8a4c:a31:18b0:c90c:3aa4:46a2:617a
+                          [04]: 2409:8a4c:a31:18b0:8df3:fb56:21bc:4b25
+                    [03]: Bluetooth Device (Personal Area Network)
+                        连接名:      蓝牙网络连接
+                        状态:        媒体连接已中断
+基于虚拟化的安全性: 状态： 正在运行
+                    所需的安全属性:
+                          基本的虚拟化支持
+                    可用的安全属性:
+                          基本的虚拟化支持
+                          DMA 保护
+                          安全内存覆盖
+                          UEFI 代码只读
+                          SMM Security Mitigations 1.0
+                          基于模式的执行控制
+                          APIC 虚拟化
+                    Services Configured:
+                    Services Running:
+                    App Control for Business policy: 强制
+                    App Control for Business user mode policy: 关
+                    已启用安全功能:
+Hyper-V 要求:       已检测到虚拟机监控程序。将不显示 Hyper-V 所需的功能。
+PS C:\Users\Administrator> Get-WmiObject Win32_Processor | Select-Object Name, NumberOfCores, MaxClockSpeed
+
+Name                         NumberOfCores MaxClockSpeed
+----                         ------------- -------------
+Intel(R) Core(TM) i7-14700KF            20          3400
+
+
+PS C:\Users\Administrator> Get-WmiObject Win32_PhysicalMemory | Select-Object Capacity
+
+   Capacity
+   --------
+17179869184
+17179869184
+
+
+PS C:\Users\Administrator> Get-WmiObject Win32_DiskDrive | Select-Object Model, Size
+
+Model                              Size
+-----                              ----
+ZHITAI TiPlus7100 2TB     2048407280640
+Samsung SSD 970 EVO 500GB  500105249280
+ST2000DM008-2FR102        2000396321280
+WDC WD40EZRZ-00GXCB0      4000784417280
+
+
+PS C:\Users\Administrator> nvidia-smi
+Sun Jan 18 14:40:23 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 581.80                 Driver Version: 581.80         CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                  Driver-Model | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5070 Ti   WDDM  |   00000000:01:00.0  On |                  N/A |
+|  0%   31C    P0             58W /  300W |    2013MiB /  16303MiB |      1%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            8476    C+G   ...r\Mystic Light\LEDKeeper2.exe      N/A      |
+|    0   N/A  N/A           10704    C+G   ...yb3d8bbwe\WindowsTerminal.exe      N/A      |
+|    0   N/A  N/A           11600    C+G   ...IA App\CEF\NVIDIA Overlay.exe      N/A      |
+|    0   N/A  N/A           11668    C+G   ...__kzh8wxbdkxb8p\DCv2\DCv2.exe      N/A      |
+|    0   N/A  N/A           13964    C+G   ..._cw5n1h2txyewy\SearchHost.exe      N/A      |
+|    0   N/A  N/A           14844    C+G   ...y\StartMenuExperienceHost.exe      N/A      |
+|    0   N/A  N/A           16640    C+G   ...5n1h2txyewy\TextInputHost.exe      N/A      |
+|    0   N/A  N/A           17216    C+G   C:\Windows\System32\dwm.exe           N/A      |
+|    0   N/A  N/A           17460    C+G   ....0.3537.99\msedgewebview2.exe      N/A      |
+|    0   N/A  N/A           17956    C+G   D:\game tools\biubiu\biubiu.exe       N/A      |
+|    0   N/A  N/A           18120    C+G   D:\tools\Notepad++\notepad++.exe      N/A      |
+|    0   N/A  N/A           18536    C+G   ...IA App\CEF\NVIDIA Overlay.exe      N/A      |
+|    0   N/A  N/A           19524    C+G   C:\Windows\explorer.exe               N/A      |
+|    0   N/A  N/A           19820    C+G   ...pplication\Microsoft Edge.exe      N/A      |
+|    0   N/A  N/A           20740    C+G   ...ng\Sysdiag\bin\HipsDaemon.exe      N/A      |
+|    0   N/A  N/A           21084    C+G   ...indows\System32\ShellHost.exe      N/A      |
++-----------------------------------------------------------------------------------------+
+PS C:\Users\Administrator>
+
+
+PS C:\Users\Administrator> Get-WmiObject Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber
+
+Caption                     Version    BuildNumber
+-------                     -------    -----------
+Microsoft Windows 11 专业版 10.0.26200 26200
+
+
+PS C:\Users\Administrator>
