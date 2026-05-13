@@ -456,7 +456,7 @@ class FormattedDocxGenerator:
             formatted_doc = self.create_formatted_docx(organized)
             
             # 保存文件 - 直接覆盖原文件名
-            output_path = self.target_dir / f"{filename}.docx"
+            output_path = self.target_dir / f"{filename}_formatted.docx"
             formatted_doc.save(output_path)
             
             logger.info(f"格式化docx文件已保存: {output_path}")

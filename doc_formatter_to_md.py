@@ -136,7 +136,7 @@ class MarkdownDocFormatter:
             md_content = self.generate_markdown_content(organized, filename)
             
             # 保存文件
-            output_path = self.target_dir / f"{filename}.md"
+            output_path = self.target_dir / f"{filename}_formatted.md"
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(md_content)
             
